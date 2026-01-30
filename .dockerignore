@@ -1,0 +1,17 @@
+node_modules
+out
+dist
+coverage
+logs
+.git
+.gitignore
+.idea
+.DS_Store
+.env*
+*.tgz
+*.lcov
+*.tsbuildinfo
+*.log
+Dockerfile
+.dockerignore
+biome.json
