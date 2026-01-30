@@ -1,0 +1,72 @@
+# mozy-scrape
+
+Web scraper that converts pages to clean, LLM-ready markdown
+
+## Features
+
+- Single URL and batch scraping
+- Markdown output optimized for LLM consumption
+- Main content extraction (Readability) or full-page mode
+- Browser fingerprint rotation (user agent, viewport, language)
+- Ad/tracker domain blocking (GA, Facebook, Hotjar, etc.)
+- Browser context pooling with configurable recycling
+- Per-domain request delay throttling
+
+## Stack
+
+| Library | Purpose |
+|---------|---------|
+| [rebrowser-playwright](https://github.com/nicepkg/rebrowser-playwright) | Anti-detect headless Chromium automation |
+| [defuddle](https://github.com/nicepkg/defuddle) | Readability-based content extraction |
+| [linkedom](https://github.com/nicepkg/linkedom) | Server-side DOM parser |
+| [turndown](https://github.com/nicepkg/turndown) | HTML-to-Markdown conversion |
+| [turndown-plugin-gfm](https://github.com/nicepkg/turndown-plugin-gfm) | GFM support (tables, strikethrough) |
+| [p-queue](https://github.com/nicepkg/p-queue) | Concurrency queue |
+| [bun](https://bun.sh) | Runtime, HTTP server, bundler |
+
+## Usage
+
+### CLI
+
+```bash
+bun run start https://example.com
+bun run start --json https://example.com
+bun run start -c 10 url1 url2 url3
+bun run start --output result.md https://example.com
+bun run start --full-page https://example.com
+```
+
+**Options:** `-c` concurrency (default 5), `--timeout` ms (default 30000), `--wait` ms after load, `--output` file, `--json`, `--full-page`, `--no-metadata`, `--no-block`
+
+### HTTP Server
+
+```bash
+bun run serve     # start on :3000
+bun run dev       # start with hot reload
+```
+
+**Endpoints:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check + stats |
+| `POST` | `/scrape` | Scrape single URL |
+| `POST` | `/scrape/batch` | Scrape up to 100 URLs |
+| `POST` | `/scrape/stream` | SSE stream of results |
+
+```bash
+curl -X POST http://localhost:3000/scrape \
+  -H 'Content-Type: application/json' \
+  -d '{"url": "https://example.com"}'
+```
+
+**Request body options:** `url`, `urls`, `format` (`"markdown"`), `timeout`, `waitAfterLoad`, `extractMainContent`, `fullPage`, `includeMetadata`, `blockResources`
+
+### Docker
+
+```bash
+docker build -t mozy-scrape .
+docker run -p 3000:3000 mozy-scrape
+```
+
+**Env vars:** `PORT`, `HOST`, `CONCURRENCY`, `TIMEOUT`
