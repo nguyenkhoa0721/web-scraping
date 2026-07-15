@@ -72,6 +72,9 @@ const server = Bun.serve({
             }
             else if (url.pathname === "/search" && method === "GET") {
                 response = await handleSearchGet(url, corsHeaders);
+            }
+            else if (url.pathname === "/search/health" && method === "GET") {
+                response = json(searchRegistry.getRankings(), 200, corsHeaders);
             } else {
                 response = json({ error: "Not found" }, 404, corsHeaders);
             }
@@ -302,18 +305,8 @@ async function handleSearch(req: Request, corsHeaders: Record<string, string>): 
     const engineName = body.engine as string | undefined;
     
     try {
-        let result;
-        if (engineName) {
-            // Use specific engine
-            const engine = searchRegistry.getEngine(engineName);
-            if (!engine) {
-                return json({ error: `Engine not found: ${engineName}` }, 404, corsHeaders);
-            }
-            result = await engine.search(query);
-        } else {
-            // Use round-robin
-            result = await searchRegistry.searchWithRoundRobin(query);
-        }
+        // Always go through searchWithRoundRobin for scoring
+        const result = await searchRegistry.searchWithRoundRobin(query, engineName);
 
         return json(result, 200, corsHeaders);
     } catch (err) {
@@ -339,16 +332,8 @@ async function handleSearchGet(url: URL, corsHeaders: Record<string, string>): P
     }
 
     try {
-        let result;
-        if (engineName) {
-            const engine = searchRegistry.getEngine(engineName);
-            if (!engine) {
-                return json({ error: `Engine not found: ${engineName}` }, 404, corsHeaders);
-            }
-            result = await engine.search(query);
-        } else {
-            result = await searchRegistry.searchWithRoundRobin(query);
-        }
+        // Always go through searchWithRoundRobin for scoring
+        const result = await searchRegistry.searchWithRoundRobin(query, engineName);
 
         return json(result, 200, corsHeaders);
     } catch (err) {
