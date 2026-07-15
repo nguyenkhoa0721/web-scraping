@@ -74,79 +74,113 @@ export class SearchEngineRegistry {
 	}
 
 	/**
-	 * Search with score-based selection and automatic fallback.
-	 * Picks the engine with the highest score that is healthy enough.
-	 * Falls back to next best engine if one fails.
+	 * Search with tier-based round-robin and automatic fallback.
+	 * Tier 1 (75-100): round-robin among healthy engines
+	 * Tier 2 (50-75):  fallback tier if tier 1 all fail
+	 * Tier 3 (0-50):   last resort
 	 */
 	async searchWithRoundRobin(query: string, preferredEngine?: string): Promise<SearchResponse> {
 		if (this.engines.length === 0) {
 			throw new Error("No search engines registered");
 		}
 
-		// Build ordered list: preferred engine first, then by score
-		const ordered = this.getEnginesByScore();
-		if (preferredEngine) {
-			const preferred = ordered.find(e => e.name === preferredEngine);
-			if (preferred) {
-				const idx = ordered.indexOf(preferred);
-				ordered.splice(idx, 1);
-				ordered.unshift(preferred);
+		const tiers = [
+			{ min: 75, max: 100, label: "healthy" },
+			{ min: 50, max: 74, label: "degraded" },
+			{ min: 0, max: 49, label: "unhealthy" },
+		];
+
+		for (const tier of tiers) {
+			const tierEngines = [...this.engines]
+				.filter(e => {
+					const score = this.scorer.getScore(e.name);
+					return score >= tier.min && score <= tier.max;
+				});
+
+			if (tierEngines.length === 0) continue;
+
+			// Build round-robin order for this tier
+			const ordered = this.buildTierRoundRobin(tierEngines);
+			if (preferredEngine && ordered.some(e => e.name === preferredEngine)) {
+				const preferred = ordered.find(e => e.name === preferredEngine);
+				if (preferred) {
+					const idx = ordered.indexOf(preferred);
+					ordered.splice(idx, 1);
+					ordered.unshift(preferred);
+				}
+			}
+
+			logger.info("trying tier", {
+				tier: tier.label,
+				minScore: tier.min,
+				engines: ordered.map(e => `${e.name}(${this.scorer.getScore(e.name)})`),
+			});
+
+			let lastError: Error | null = null;
+
+			for (const engine of ordered) {
+				const startTime = performance.now();
+				try {
+					logger.info("trying engine", {
+						engine: engine.name,
+						score: this.scorer.getScore(engine.name),
+					});
+					const result = await engine.search(query);
+					const duration = performance.now() - startTime;
+
+					this.scorer.recordSuccess(engine.name, duration);
+
+					logger.info("search success", {
+						engine: engine.name,
+						tier: tier.label,
+						results: result.results.length,
+						duration: `${duration.toFixed(0)}ms`,
+						newScore: this.scorer.getScore(engine.name),
+					});
+
+					return result;
+				} catch (error) {
+					const duration = performance.now() - startTime;
+					const errMsg = error instanceof Error ? error.message : String(error);
+
+					this.scorer.recordFailure(engine.name, duration, errMsg);
+
+					logger.warn("engine failed", {
+						engine: engine.name,
+						error: errMsg,
+						duration: `${duration.toFixed(0)}ms`,
+						newScore: this.scorer.getScore(engine.name),
+					});
+
+					lastError = error as Error;
+					continue;
+				}
+			}
+
+			// If this tier had engines but all failed, try next tier
+			if (lastError) {
+				logger.warn("tier exhausted, falling back", {
+					tier: tier.label,
+					nextTier: tiers[tiers.indexOf(tier) + 1]?.label || "none",
+				});
 			}
 		}
 
-		let lastError: Error | null = null;
+		throw new Error("All search engines failed");
+	}
 
-		for (const engine of ordered) {
-			// Skip engines below healthy threshold if we have better options
-			const score = this.scorer.getScore(engine.name);
-			if (score < SCORING_CONFIG.minHealthyScore && ordered.filter(e => this.scorer.getScore(e.name) >= SCORING_CONFIG.minHealthyScore).length > 0) {
-				logger.info("skipping unhealthy engine", {
-					engine: engine.name,
-					score,
-				});
-				continue;
-			}
+	/**
+	 * Round-robin within a tier using a per-tier counter.
+	 */
+	private tierRoundRobinIndex = 0;
 
-			const startTime = performance.now();
-			try {
-				logger.info("trying engine", {
-					engine: engine.name,
-					score,
-				});
-				const result = await engine.search(query);
-				const duration = performance.now() - startTime;
-
-				// Record success
-				this.scorer.recordSuccess(engine.name, duration);
-
-				logger.info("search success", {
-					engine: engine.name,
-					results: result.results.length,
-					duration: `${duration.toFixed(0)}ms`,
-					newScore: this.scorer.getScore(engine.name),
-				});
-
-				return result;
-			} catch (error) {
-				const duration = performance.now() - startTime;
-				const errMsg = error instanceof Error ? error.message : String(error);
-				
-				// Record failure
-				this.scorer.recordFailure(engine.name, duration, errMsg);
-
-				logger.warn("engine failed", {
-					engine: engine.name,
-					error: errMsg,
-					duration: `${duration.toFixed(0)}ms`,
-					newScore: this.scorer.getScore(engine.name),
-				});
-
-				lastError = error as Error;
-				continue;
-			}
-		}
-
-		throw lastError || new Error("All search engines failed");
+	private buildTierRoundRobin(engines: SearchEngine[]): SearchEngine[] {
+		// Sort by score descending for deterministic ordering
+		const sorted = [...engines].sort((a, b) => this.scorer.getScore(b.name) - this.scorer.getScore(a.name));
+		// Rotate based on tier round-robin counter
+		const startIdx = this.tierRoundRobinIndex % sorted.length;
+		this.tierRoundRobinIndex++;
+		return [...sorted.slice(startIdx), ...sorted.slice(0, startIdx)];
 	}
 
 	/**
