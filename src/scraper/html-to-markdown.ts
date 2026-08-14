@@ -277,8 +277,12 @@ function cleanForLLM(md: string): string {
 	// Remove images with data URIs (inline SVGs, base64 blobs)
 	out = out.replace(/!\[[^\]]*\]\(data:[^)]+\)/g, "");
 
-	// Remove empty links
-	out = out.replace(/\[\s*\]\([^)]*\)/g, "");
+	// Remove empty links, but NOT images with empty alt: `![](...)` is a
+	// legitimate image whose alt text is missing (Saigoneer's <img> tags have
+	// no alt), and the old pattern `/\[\s*\]\([^)]*\)/g` matched it, silently
+	// deleting every image with an empty alt. Negative lookbehind excludes
+	// the leading `!` of markdown images.
+	out = out.replace(/(?<!!)\[\s*\]\([^)]*\)/g, "");
 
 	// Remove self-referential anchors [text](#)
 	out = out.replace(/\[([^\]]+)\]\(#\)/g, "$1");

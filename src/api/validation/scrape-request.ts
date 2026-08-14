@@ -63,6 +63,9 @@ function extractScrapeConfig(
 	const blockResources = optionalBoolean(body.blockResources, "blockResources");
 	if (blockResources === false) config.blockResources = false;
 
+	const includeMedia = optionalBoolean(body.includeMedia, "includeMedia");
+	if (includeMedia === true) config.includeMedia = true;
+
 	return Object.keys(config).length > 0 ? config : undefined;
 }
 

@@ -15,6 +15,8 @@ export interface ScrapeConfig {
 	extractMainContent: boolean;
 	/** Include page metadata (title, description, etc.) in output */
 	includeMetadata: boolean;
+	/** Extract article image URLs (images[] + thumbnail) into metadata */
+	includeMedia: boolean;
 	/** Custom headers to send */
 	headers: Record<string, string>;
 	/** User agent string */
@@ -67,6 +69,10 @@ export interface PageMetadata {
 	author?: string;
 	publishedDate?: string;
 	wordCount: number;
+	/** Article images (absolute URLs), extracted when includeMedia=true */
+	images?: string[];
+	/** Article thumbnail/cover (og:image or first image) */
+	thumbnail?: string;
 }
 
 export interface BrowserPoolContext {
@@ -85,6 +91,7 @@ export const DEFAULT_CONFIG: ScrapeConfig = {
 	blockedResourceTypes: ["image", "stylesheet", "font", "media"],
 	extractMainContent: true,
 	includeMetadata: true,
+	includeMedia: false,
 	headers: {},
 	userAgent:
 		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",

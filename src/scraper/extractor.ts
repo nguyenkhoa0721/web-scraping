@@ -56,10 +56,24 @@ export interface ExtractionResult {
 /**
  * Extracts main content from raw HTML using Defuddle.
  * Falls back to cleaned full-page HTML if Defuddle fails.
+ * When includeMedia is true, article image URLs + thumbnail are collected
+ * from the full document (before noise removal) into metadata.
  */
-export function extractContent(html: string, url: string): ExtractionResult {
+export function extractContent(
+	html: string,
+	url: string,
+	includeMedia = false,
+): ExtractionResult {
 	const { document } = parseHTML(html);
 	const metadata = extractMetadata(document, url);
+
+	let images: string[] = [];
+	let thumbnail = "";
+	if (includeMedia) {
+		const imgResult = extractImages(document, url);
+		images = imgResult.images;
+		thumbnail = imgResult.thumbnail;
+	}
 
 	// Remove noise before Defuddle (complementary)
 	removeNoiseElements(document);
@@ -83,6 +97,8 @@ export function extractContent(html: string, url: string): ExtractionResult {
 			const wordCount =
 				result.wordCount || countWords(result.content.replace(/<[^>]+>/g, ""));
 			metadata.wordCount = wordCount;
+			if (images.length > 0) metadata.images = images;
+			if (thumbnail) metadata.thumbnail = thumbnail;
 			return { content: result.content, metadata };
 		}
 	} catch {
@@ -94,16 +110,31 @@ export function extractContent(html: string, url: string): ExtractionResult {
 	const body = document.querySelector("body");
 	const fallbackHtml = body?.innerHTML || html;
 	metadata.wordCount = countWords(body?.textContent || "");
+	if (images.length > 0) metadata.images = images;
+	if (thumbnail) metadata.thumbnail = thumbnail;
 	return { content: fallbackHtml, metadata };
 }
 
 /**
  * Returns cleaned full-page HTML (no Readability extraction).
  * Useful when you want the complete page content.
+ * When includeMedia is true, article image URLs + thumbnail are collected.
  */
-export function extractFullPage(html: string, url: string): ExtractionResult {
+export function extractFullPage(
+	html: string,
+	url: string,
+	includeMedia = false,
+): ExtractionResult {
 	const { document } = parseHTML(html);
 	const metadata = extractMetadata(document, url);
+
+	let images: string[] = [];
+	let thumbnail = "";
+	if (includeMedia) {
+		const imgResult = extractImages(document, url);
+		images = imgResult.images;
+		thumbnail = imgResult.thumbnail;
+	}
 
 	normalizeCodeBlocks(document);
 
@@ -112,6 +143,8 @@ export function extractFullPage(html: string, url: string): ExtractionResult {
 	const body = document.querySelector("body");
 	const content = body?.innerHTML || html;
 	metadata.wordCount = countWords(body?.textContent || "");
+	if (images.length > 0) metadata.images = images;
+	if (thumbnail) metadata.thumbnail = thumbnail;
 
 	return { content, metadata };
 }
@@ -147,6 +180,91 @@ function extractMetadata(document: Document, url: string): PageMetadata {
 			undefined,
 		wordCount: 0,
 	};
+}
+
+/** Heuristic: is this URL a site-chrome image (logo/icon/share/svg)? */
+function isChromeImage(src: string): boolean {
+	const lower = src.toLowerCase();
+	if (lower.startsWith("data:image/svg")) return true;
+	if (/\.svg($|\?)/.test(lower)) return true;
+	if (
+		/(logo|icon|favicon|avatar|sprite|banner|share|social|pixel|tracking)/i.test(
+			lower,
+		)
+	) {
+		return true;
+	}
+	// Common chrome paths
+	if (
+		/\/templates\/|\/themes\/|\/assets\/(img\/)?(logo|icon)|static\/img\//i.test(
+			lower,
+		)
+	) {
+		return true;
+	}
+	return false;
+}
+
+/** Image extension whitelist */
+const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)(\?.*)?$/i;
+
+/**
+ * Collect article image URLs from the page. Filters out site chrome
+ * (logos, icons, svg, share buttons, tracking pixels) and keeps only
+ * real image extensions. URLs are made absolute against the page URL.
+ */
+function extractImages(
+	document: Document,
+	url: string,
+): { images: string[]; thumbnail: string } {
+	const ogImage =
+		document
+			.querySelector('meta[property="og:image"]')
+			?.getAttribute("content") || "";
+
+	const seen = new Set<string>();
+	const images: string[] = [];
+	const push = (raw: string) => {
+		if (!raw) return;
+		let abs = raw.trim();
+		if (abs.startsWith("//")) abs = `https:${abs}`;
+		else if (!/^https?:\/\//i.test(abs)) {
+			try {
+				abs = new URL(abs, url).href;
+			} catch {
+				return;
+			}
+		}
+		if (!IMAGE_EXT_RE.test(abs)) return;
+		if (isChromeImage(abs)) return;
+		if (seen.has(abs)) return;
+		seen.add(abs);
+		images.push(abs);
+	};
+
+	if (ogImage) push(ogImage);
+	const imgs = document.querySelectorAll("img");
+	for (const img of imgs) {
+		push(img.getAttribute("src") || "");
+		const srcset = img.getAttribute("srcset") || "";
+		if (srcset) {
+			// Take the last (largest) candidate from srcset
+			const candidates = srcset
+				.split(",")
+				.map((s) => s.trim().split(/\s+/)[0] || "");
+			if (candidates.length > 0) push(candidates[candidates.length - 1] || "");
+		}
+	}
+
+	// thumbnail = og:image, else first article image
+	let thumbnail = "";
+	if (ogImage && !isChromeImage(ogImage) && IMAGE_EXT_RE.test(ogImage)) {
+		thumbnail = ogImage.startsWith("//") ? `https:${ogImage}` : ogImage;
+	} else if (images.length > 0) {
+		thumbnail = images[0] || "";
+	}
+
+	return { images, thumbnail };
 }
 
 function removeNoiseElements(document: Document): void {

@@ -284,8 +284,16 @@ export class Scraper {
 				log.debug("static fast path hit", { url: job.url });
 				const extractStart = performance.now();
 				const { content, metadata } = jobConfig.extractMainContent
-					? extractContent(staticResult.html, staticResult.finalUrl)
-					: extractFullPage(staticResult.html, staticResult.finalUrl);
+					? extractContent(
+							staticResult.html,
+							staticResult.finalUrl,
+							jobConfig.includeMedia,
+						)
+					: extractFullPage(
+							staticResult.html,
+							staticResult.finalUrl,
+							jobConfig.includeMedia,
+						);
 				const extractTime = performance.now() - extractStart;
 
 				const convertStart = performance.now();
@@ -406,8 +414,8 @@ export class Scraper {
 				const finalUrl = page.url();
 
 				const { content, metadata } = jobConfig.extractMainContent
-					? extractContent(html, finalUrl)
-					: extractFullPage(html, finalUrl);
+					? extractContent(html, finalUrl, jobConfig.includeMedia)
+					: extractFullPage(html, finalUrl, jobConfig.includeMedia);
 
 				const extractTime = performance.now() - extractStart;
 
