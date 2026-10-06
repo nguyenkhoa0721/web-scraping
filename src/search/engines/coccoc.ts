@@ -37,24 +37,14 @@ export class CoccocEngine extends SearchEngine {
 		const encodedQuery = encodeURIComponent(query);
 		const url = `https://coccoc.com/search?query=${encodedQuery}`;
 
-		const response = await fetch(url, {
-			headers: {
-				"User-Agent": ua,
-				Accept:
-					"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-				"Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
-				"Cache-Control": "no-cache",
-			},
-			signal: this.config.timeout
-				? AbortSignal.timeout(this.config.timeout)
-				: undefined,
-		});
+		let html = await this.fetchPage(url, ua);
 
-		if (!response.ok) {
-			throw new Error(`Cốc Cốc search failed: ${response.status}`);
+		// Cốc Cốc first answers with a tiny page that sets a cookie via JS and
+		// redirects; repeat the request with that cookie, like a browser would.
+		const challenge = parseCookieRedirect(html);
+		if (challenge) {
+			html = await this.fetchPage(challenge.url, ua, challenge.cookie);
 		}
-
-		const html = await response.text();
 
 		// Extract window.composerResponse - greedy match to get full JSON
 		const startMarker = "window.composerResponse = ";
@@ -98,6 +88,15 @@ export class CoccocEngine extends SearchEngine {
 			throw new Error("provider_verification_required");
 		}
 
+		// Outside Vietnam, Cốc Cốc redirects the query to Google instead of
+		// returning results. Fail loudly so the registry can fall back.
+		const search = isRecord(data) ? data.search : undefined;
+		if (isRecord(search) && typeof search.redirect === "string") {
+			throw new Error(
+				"Cốc Cốc redirected the query (likely a non-Vietnam IP); use a Vietnam proxy",
+			);
+		}
+
 		const results = this.parseResults(data);
 		const duration = performance.now() - startTime;
 
@@ -113,6 +112,33 @@ export class CoccocEngine extends SearchEngine {
 			engine: this.name,
 			duration,
 		};
+	}
+
+	private async fetchPage(
+		url: string,
+		ua: string,
+		cookie?: string,
+	): Promise<string> {
+		const response = await fetch(url, {
+			headers: {
+				"User-Agent": ua,
+				Accept:
+					"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				"Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+				"Cache-Control": "no-cache",
+				...(cookie ? { Cookie: cookie } : {}),
+			},
+			proxy: this.config.proxy,
+			signal: this.config.timeout
+				? AbortSignal.timeout(this.config.timeout)
+				: undefined,
+		});
+
+		if (!response.ok) {
+			throw new Error(`Cốc Cốc search failed: ${response.status}`);
+		}
+
+		return response.text();
 	}
 
 	/**
@@ -161,4 +187,12 @@ function nextUserAgent(pool: readonly string[], requestCount: number): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseCookieRedirect(
+	html: string,
+): { cookie: string; url: string } | undefined {
+	const cookie = html.match(/document\.cookie\s*=\s*"([^;"]+)/)?.[1];
+	const url = html.match(/location\.replace\("([^"]+)"/)?.[1];
+	return cookie && url ? { cookie, url } : undefined;
 }

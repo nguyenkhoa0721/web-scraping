@@ -18,6 +18,8 @@ export interface SearchResponse {
 
 export interface SearchConfig {
 	timeout?: number;
+	/** Proxy URL for outgoing search requests, e.g. http://user:pass@host:8080 */
+	proxy?: string;
 }
 
 /**

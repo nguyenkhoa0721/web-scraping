@@ -10,6 +10,7 @@ export interface RuntimeConfig {
 	};
 	scraper: Pick<ScrapeConfig, "concurrency" | "timeout">;
 	search: {
+		proxy?: string;
 		brave: {
 			apiKey?: string;
 		};
@@ -49,6 +50,7 @@ export function loadRuntimeConfig(
 			),
 		},
 		search: {
+			proxy: parseProxyUrl(env.SEARCH_PROXY_URL),
 			brave: {
 				apiKey: optionalString(env.BRAVE_SEARCH_API_KEY),
 			},
@@ -62,6 +64,18 @@ export const runtimeConfig = loadRuntimeConfig();
 function optionalString(value: string | undefined): string | undefined {
 	const trimmed = value?.trim();
 	return trimmed || undefined;
+}
+
+function parseProxyUrl(value: string | undefined): string | undefined {
+	const raw = optionalString(value);
+	if (!raw) return undefined;
+
+	try {
+		new URL(raw);
+	} catch {
+		throw new Error("SEARCH_PROXY_URL must be a valid URL");
+	}
+	return raw;
 }
 
 function parsePositiveInteger(

@@ -48,6 +48,7 @@ export class BraveSearchEngine extends SearchEngine {
 				Accept: "application/json",
 				"X-Subscription-Token": this.apiKey,
 			},
+			proxy: this.config.proxy,
 			signal: this.config.timeout
 				? AbortSignal.timeout(this.config.timeout)
 				: undefined,

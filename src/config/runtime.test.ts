@@ -47,3 +47,14 @@ test("rejects invalid runtime values at startup", () => {
 		"LOG_LEVEL must be one of: debug, info, warn, error",
 	);
 });
+
+test("parses the optional search proxy URL", () => {
+	expect(loadRuntimeConfig({}).search.proxy).toBeUndefined();
+	expect(
+		loadRuntimeConfig({ SEARCH_PROXY_URL: " http://u:p@host:8080 " }).search
+			.proxy,
+	).toBe("http://u:p@host:8080");
+	expect(() => loadRuntimeConfig({ SEARCH_PROXY_URL: "nope" })).toThrow(
+		"SEARCH_PROXY_URL",
+	);
+});
